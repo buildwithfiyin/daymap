@@ -1,0 +1,828 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Daymap — Plan from your reality</title>
+  <meta name="description" content="Daymap asks what you have to give today — your energy, your time — and builds your day from there." />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <style>
+    html, body, #root { margin: 0; padding: 0; min-height: 100%; background: #0D0906; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    // ── Storage (localStorage) ───────────────────────────────────────────────
+    const store = {
+      get: (key) => { try { const v = localStorage.getItem(key); return v ? { value: v } : null; } catch { return null; } },
+      set: (key, val) => { try { localStorage.setItem(key, val); } catch {} },
+      del: (key) => { try { localStorage.removeItem(key); } catch {} },
+    };
+
+    // ── Constants ────────────────────────────────────────────────────────────
+    const COLORS = {
+      bg: "#0D0906", card: "#1A1109", elevated: "#261910", border: "#3A2818",
+      accent: "#C4622D", accentLight: "#E07848", gold: "#D4A853", sand: "#EDE0C8",
+      textPrimary: "#F0E6D3", textMuted: "#9A8470", textDim: "#5C4A3A",
+    };
+
+    const CATEGORY_STYLES = {
+      Focus:    { bg: "#3D1E10", color: "#E07848", dot: "#C4622D" },
+      Admin:    { bg: "#2D2410", color: "#D4A853", dot: "#A8832A" },
+      Health:   { bg: "#112A1A", color: "#6DBF8A", dot: "#3A9B5C" },
+      Creative: { bg: "#2A1020", color: "#D47AB5", dot: "#A8508A" },
+      Learning: { bg: "#101C2A", color: "#6AA8D4", dot: "#3A78A8" },
+      Planning: { bg: "#1C1C10", color: "#B8C46D", dot: "#8A9A3A" },
+    };
+
+    const ENERGY_OPTIONS = [
+      { value: "low",    label: "Low",    desc: "Running on fumes",    icon: "🌙", pomoDuration: 15 },
+      { value: "medium", label: "Medium", desc: "Steady and present",  icon: "☀️", pomoDuration: 25 },
+      { value: "high",   label: "High",   desc: "Locked in, let's go", icon: "⚡", pomoDuration: 45 },
+    ];
+
+    // ── Global styles ────────────────────────────────────────────────────────
+    const injectStyles = () => {
+      if (document.getElementById("dm-styles")) return;
+      const css = `
+        @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=DM+Sans:wght@300;400;500&display=swap');
+        *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+        body{background:#0D0906;color:#F0E6D3;font-family:'DM Sans',sans-serif}
+        ::selection{background:#C4622D40;color:#EDE0C8}
+        ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:#0D0906}::-webkit-scrollbar-thumb{background:#3A2818;border-radius:2px}
+        .dm-h{font-family:'Cormorant Garamond',serif}
+        .dm-fu{animation:dmFU 0.6s ease forwards;opacity:0}
+        .dm-d1{animation-delay:.1s}.dm-d2{animation-delay:.22s}.dm-d3{animation-delay:.34s}.dm-d4{animation-delay:.46s}
+        @keyframes dmFU{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}
+        .dm-ti{animation:taskIn 0.45s cubic-bezier(0.16,1,0.3,1) forwards;opacity:0}
+        @keyframes taskIn{from{opacity:0;transform:translateX(-12px)}to{opacity:1;transform:translateX(0)}}
+        .dm-btn{cursor:pointer;border:none;outline:none;transition:all 0.2s ease;font-family:'DM Sans',sans-serif}
+        .dm-btn:active{transform:scale(0.97)}
+        .dm-prog{transition:width 0.5s cubic-bezier(0.34,1.56,0.64,1)}
+        .dm-cb{width:22px;height:22px;border-radius:50%;border:1.5px solid #3A2818;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:all 0.2s;background:transparent}
+        .dm-cb:hover{border-color:#C4622D}
+        .dm-cb.chk{background:#C4622D;border-color:#C4622D}
+        .dm-row{transition:all 0.25s}
+        .dm-row:hover{background:#261910!important}
+        .dm-row.done{opacity:0.42}
+        .dm-tip{max-height:0;overflow:hidden;transition:max-height 0.35s ease,opacity 0.3s;opacity:0}
+        .dm-tip.open{max-height:160px;opacity:1}
+        .dm-badge{background:#D4A85318;border:1px solid #D4A85340;color:#D4A853;font-size:10px;letter-spacing:0.08em;text-transform:uppercase;padding:2px 8px;border-radius:20px}
+        .dm-grain{position:fixed;inset:0;pointer-events:none;z-index:999;opacity:0.025;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
+        .dm-toast{position:fixed;bottom:32px;left:50%;transform:translateX(-50%) translateY(60px);background:#1A1109;border:1px solid #3A2818;padding:12px 24px;border-radius:40px;font-size:13px;color:#EDE0C8;transition:transform 0.4s cubic-bezier(0.34,1.56,0.64,1);z-index:1000;white-space:nowrap}
+        .dm-toast.on{transform:translateX(-50%) translateY(0)}
+        .dm-modal{position:fixed;inset:0;background:#000000B0;z-index:200;display:flex;align-items:center;justify-content:center;padding:24px;animation:fadeIn 0.2s ease}
+        @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+        .dm-input{background:#261910;border:1px solid #3A2818;color:#F0E6D3;border-radius:12px;padding:12px 16px;font-family:'DM Sans',sans-serif;font-size:14px;outline:none;width:100%;transition:border-color 0.2s;resize:none}
+        .dm-input:focus{border-color:#C4622D60}
+        .dm-input::placeholder{color:#5C4A3A}
+        .dm-hero{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;overflow:hidden;padding:40px 24px}
+        .dm-glow{position:absolute;width:600px;height:600px;border-radius:50%;background:radial-gradient(circle,#C4622D18 0%,transparent 70%);top:50%;left:50%;transform:translate(-50%,-50%);pointer-events:none}
+        .dm-pomo-ring{transition:stroke-dashoffset 1s linear}
+        .dm-sp{animation:streakPulse 2s ease infinite}
+        @keyframes streakPulse{0%,100%{opacity:1}50%{opacity:0.6}}
+        @keyframes spin{to{transform:rotate(360deg)}}
+        @keyframes floatUp{0%{opacity:1;transform:translateY(0) scale(1)}100%{opacity:0;transform:translateY(-120px) scale(0.4)}}
+        @keyframes completePop{0%{opacity:0;transform:scale(0.88) translateY(24px)}100%{opacity:1;transform:scale(1) translateY(0)}}
+        .dm-complete-card{animation:completePop 0.5s cubic-bezier(0.16,1,0.3,1) forwards}
+        .dm-particle{position:absolute;border-radius:50%;animation:floatUp 1.8s ease-out forwards;pointer-events:none}
+      `;
+      const el = document.createElement("style");
+      el.id = "dm-styles"; el.textContent = css;
+      document.head.appendChild(el);
+    };
+
+    // ── Storage helpers ──────────────────────────────────────────────────────
+    const todayKey = () => new Date().toISOString().slice(0, 10);
+    const getWeekStart = () => {
+      const d = new Date(); const day = d.getDay();
+      const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+      return new Date(new Date().setDate(diff)).toISOString().slice(0, 10);
+    };
+
+    function loadStreaks() {
+      const r = store.get("daymap:streaks");
+      return r ? JSON.parse(r.value) : { protectedStreak: 0, intentionStreak: 0, lastDate: null };
+    }
+    function saveStreaks(d) { store.set("daymap:streaks", JSON.stringify(d)); }
+    function loadWeeklyLog() {
+      const r = store.get("daymap:weeklog");
+      return r ? JSON.parse(r.value) : {};
+    }
+    function saveWeeklyLog(l) { store.set("daymap:weeklog", JSON.stringify(l)); }
+
+    // ── API calls ────────────────────────────────────────────────────────────
+    async function callClaude(_unused, prompt, maxTokens = 1000) {
+      const res = await fetch("/.netlify/functions/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt, maxTokens }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error.message);
+      return data.content?.find(b => b.type === "text")?.text || "";
+    }
+
+    async function generateDaymap(apiKey, { goals, energy, hours, rescueMode = false, remainingTasks = [] }) {
+      const rescueCtx = rescueMode ? `Rescue mode. Remaining hours: ${hours}. Remaining tasks: ${remainingTasks.map(t => t.title).join(", ")}.` : "";
+      const prompt = `You are Daymap. Philosophy: plan from reality, not ambition.
+User: energy=${energy}, hours=${hours}, goals="${goals}"
+${rescueCtx}
+
+Return ONLY valid JSON (no markdown, no preamble). Rules:
+- 5–7 tasks (fewer if rescue or low energy). STRICT maximum 7.
+- Match task difficulty to energy (low=light admin, high=deep work)
+- Exactly ONE task isProtected:true
+- coachingTip: max 1 sentence, warm and direct
+- dayIntention: poetic emotional one sentence (not functional)
+- Categories: Focus|Admin|Health|Creative|Learning|Planning
+
+{"dayIntention":"string","tasks":[{"id":"t1","title":"string","category":"Focus","timeEstimate":"30 min","coachingTip":"string","isProtected":false}]}`;
+      const text = await callClaude(apiKey, prompt, 1000);
+      return JSON.parse(text.replace(/```json|```/g, "").trim());
+    }
+
+    async function generateCongrats(apiKey, { energy, taskCount, protectedStreak, intentionStreak }) {
+      const prompt = `You are Daymap. A user just completed all ${taskCount} tasks. Energy today: "${energy}". Protected streak: ${protectedStreak} days. Intention streak: ${intentionStreak} days.
+
+Write a SHORT congratulatory message (2–3 sentences). Rules:
+- Warm, human, never corporate
+- Reference their energy level naturally
+- If streaks > 0, briefly celebrate them
+- End with a restful forward-looking line
+- No exclamation points, no hollow praise like "Amazing!"
+- Each message must feel different — vary the opening and angle
+
+Return ONLY the message text. No quotes, no formatting.`;
+      return await callClaude(apiKey, prompt, 200);
+    }
+
+    // ── Typewriter hook ──────────────────────────────────────────────────────
+    function useTypewriter(text, speed = 22) {
+      const [d, setD] = useState("");
+      useEffect(() => {
+        setD(""); if (!text) return;
+        let i = 0;
+        const iv = setInterval(() => { i++; setD(text.slice(0, i)); if (i >= text.length) clearInterval(iv); }, speed);
+        return () => clearInterval(iv);
+      }, [text]);
+      return d;
+    }
+
+    // ── Logo ─────────────────────────────────────────────────────────────────
+    function Logo() {
+      return (
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+            <rect width="32" height="32" rx="8" fill={COLORS.accent} />
+            <path d="M8 10h16M8 16h10M8 22h13" stroke={COLORS.sand} strokeWidth="2" strokeLinecap="round" />
+            <circle cx="24" cy="22" r="3" fill={COLORS.sand} />
+          </svg>
+          <span className="dm-h" style={{ fontSize: 22, fontWeight: 600, color: COLORS.sand }}>Daymap</span>
+        </div>
+      );
+    }
+
+    // ── API Key Setup Screen ─────────────────────────────────────────────────
+    function ApiKeyScreen({ onSave }) {
+      const [key, setKey] = useState("");
+      const [error, setError] = useState("");
+      const [testing, setTesting] = useState(false);
+
+      const handle = async () => {
+        if (!key.trim().startsWith("sk-ant-")) { setError("That doesn't look like a valid Anthropic API key. It should start with sk-ant-"); return; }
+        setError(""); setTesting(true);
+        try {
+          await callClaude(key.trim(), "Say only the word: ready", 10);
+          store.set("daymap:apikey", key.trim());
+          onSave(key.trim());
+        } catch (e) {
+          setError("Key didn't work. Check it and try again.");
+        } finally { setTesting(false); }
+      };
+
+      return (
+        <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: "40px 24px" }}>
+          <div style={{ maxWidth: 460, width: "100%" }}>
+            <Logo />
+            <div style={{ height: 36 }} />
+            <h2 className="dm-h dm-fu" style={{ fontSize: 32, fontWeight: 300, color: COLORS.sand, marginBottom: 8, lineHeight: 1.2 }}>
+              One quick setup
+            </h2>
+            <p className="dm-fu dm-d1" style={{ fontSize: 14, color: COLORS.textMuted, lineHeight: 1.7, marginBottom: 32 }}>
+              Daymap uses the Anthropic Claude API to generate your daily plan. Add your API key below — it stays on your device only, never sent anywhere else.
+            </p>
+
+            <div className="dm-fu dm-d2" style={{ background: COLORS.elevated, border: `1px solid ${COLORS.border}`, borderRadius: 14, padding: "18px 20px", marginBottom: 24 }}>
+              <p style={{ fontSize: 12, color: COLORS.textMuted, lineHeight: 1.6 }}>
+                Get your free key at{" "}
+                <a href="https://console.anthropic.com/keys" target="_blank" rel="noopener" style={{ color: COLORS.accentLight }}>
+                  console.anthropic.com/keys
+                </a>
+                {" "}→ click "Create Key" → paste it below.
+              </p>
+            </div>
+
+            <div className="dm-fu dm-d3" style={{ marginBottom: 16 }}>
+              <input
+                className="dm-input"
+                type="password"
+                placeholder="sk-ant-api03-..."
+                value={key}
+                onChange={e => setKey(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && handle()}
+              />
+              {error && <p style={{ fontSize: 12, color: COLORS.accentLight, marginTop: 6 }}>{error}</p>}
+            </div>
+
+            <button className="dm-btn dm-fu dm-d4" onClick={handle} disabled={testing} style={{
+              width: "100%", padding: "15px", borderRadius: 14, fontSize: 15, fontWeight: 500,
+              background: testing ? COLORS.elevated : COLORS.accent,
+              color: testing ? COLORS.textMuted : COLORS.sand,
+              boxShadow: testing ? "none" : `0 0 32px #C4622D40`,
+            }}>
+              {testing
+                ? <span style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
+                    <span style={{ display: "inline-block", width: 15, height: 15, border: `2px solid #5C4A3A`, borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+                    Verifying key…
+                  </span>
+                : "Save and start →"}
+            </button>
+
+            <p className="dm-fu dm-d4" style={{ fontSize: 11, color: COLORS.textDim, textAlign: "center", marginTop: 16, lineHeight: 1.6 }}>
+              Your key is stored locally in your browser. Daymap never sees it.
+            </p>
+          </div>
+        </div>
+      );
+    }
+
+    // ── Pomodoro Timer ───────────────────────────────────────────────────────
+    function PomodoroTimer({ durationMinutes, onComplete }) {
+      const total = durationMinutes * 60;
+      const [remaining, setRemaining] = useState(total);
+      const [running, setRunning] = useState(false);
+      const ivRef = useRef(null);
+
+      useEffect(() => {
+        if (running) {
+          ivRef.current = setInterval(() => {
+            setRemaining(r => { if (r <= 1) { clearInterval(ivRef.current); setRunning(false); onComplete?.(); return 0; } return r - 1; });
+          }, 1000);
+        } else clearInterval(ivRef.current);
+        return () => clearInterval(ivRef.current);
+      }, [running]);
+
+      const pct = remaining / total;
+      const circ = 2 * Math.PI * 16;
+      const mins = Math.floor(remaining / 60);
+      const secs = String(remaining % 60).padStart(2, "0");
+
+      return (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "0 16px 14px 52px" }}>
+          <div style={{ position: "relative", width: 44, height: 44 }}>
+            <svg width="44" height="44" viewBox="0 0 44 44">
+              <circle cx="22" cy="22" r="16" fill="none" stroke={COLORS.border} strokeWidth="2.5" />
+              <circle className="dm-pomo-ring" cx="22" cy="22" r="16" fill="none"
+                stroke={running ? COLORS.accent : COLORS.textDim} strokeWidth="2.5"
+                strokeDasharray={circ} strokeDashoffset={circ * (1 - pct)}
+                strokeLinecap="round" transform="rotate(-90 22 22)" />
+            </svg>
+            <span style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: COLORS.textMuted }}>{mins}:{secs}</span>
+          </div>
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <button className="dm-btn" onClick={() => setRunning(!running)} style={{ fontSize: 11, padding: "4px 12px", borderRadius: 20, background: running ? COLORS.elevated : `${COLORS.accent}28`, border: `1px solid ${running ? COLORS.border : COLORS.accent}`, color: running ? COLORS.textMuted : COLORS.accentLight }}>
+              {running ? "Pause" : remaining === total ? "Start" : "Resume"}
+            </button>
+            {remaining < total && (
+              <button className="dm-btn" onClick={() => { setRemaining(total); setRunning(false); }} style={{ fontSize: 11, padding: "4px 10px", borderRadius: 20, background: COLORS.elevated, border: `1px solid ${COLORS.border}`, color: COLORS.textDim }}>Reset</button>
+            )}
+            <span style={{ fontSize: 11, color: COLORS.textDim }}>{durationMinutes}m focus</span>
+          </div>
+        </div>
+      );
+    }
+
+    // ── Task Row ─────────────────────────────────────────────────────────────
+    function TaskRow({ task, index, onToggle, pomoDuration, onPomoComplete }) {
+      const [tipOpen, setTipOpen] = useState(false);
+      const [pomoOpen, setPomoOpen] = useState(false);
+      const cat = CATEGORY_STYLES[task.category] || CATEGORY_STYLES.Focus;
+
+      return (
+        <div className={`dm-row dm-ti ${task.completed ? "done" : ""}`} style={{ animationDelay: `${index * 0.08}s`, background: task.isProtected ? `${COLORS.gold}08` : "transparent", borderRadius: 12, border: `1px solid ${task.isProtected ? COLORS.gold + "28" : COLORS.border}`, marginBottom: 8, overflow: "hidden" }}>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 14, padding: "14px 16px" }}>
+            <div className={`dm-cb ${task.completed ? "chk" : ""}`} onClick={() => onToggle(task.id)} style={{ marginTop: 1 }}>
+              {task.completed && <svg width="12" height="10" viewBox="0 0 12 10" fill="none"><path d="M1 5l3.5 3.5L11 1" stroke={COLORS.sand} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
+                <span style={{ fontSize: 15, color: task.completed ? COLORS.textDim : COLORS.textPrimary, textDecoration: task.completed ? "line-through" : "none", lineHeight: 1.4 }}>{task.title}</span>
+                {task.isProtected && <span className="dm-badge">Protected</span>}
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 20, background: cat.bg, color: cat.color, display: "flex", alignItems: "center", gap: 4 }}>
+                  <span style={{ width: 5, height: 5, borderRadius: "50%", background: cat.dot, display: "inline-block" }} />{task.category}
+                </span>
+                <span style={{ fontSize: 12, color: COLORS.textDim }}>⏱ {task.timeEstimate}</span>
+                <button className="dm-btn" onClick={() => setTipOpen(!tipOpen)} style={{ fontSize: 11, color: tipOpen ? COLORS.accent : COLORS.textDim, background: "none", padding: 0, display: "flex", alignItems: "center", gap: 3 }}>
+                  {tipOpen ? "▾" : "▸"} Tip
+                </button>
+                <button className="dm-btn" onClick={() => setPomoOpen(!pomoOpen)} style={{ fontSize: 11, color: pomoOpen ? COLORS.gold : COLORS.textDim, background: "none", padding: 0, display: "flex", alignItems: "center", gap: 3 }}>
+                  {pomoOpen ? "▾" : "▸"} Focus timer
+                </button>
+              </div>
+            </div>
+          </div>
+          <div className={`dm-tip ${tipOpen ? "open" : ""}`}>
+            <p style={{ fontSize: 13, color: COLORS.textMuted, lineHeight: 1.6, fontStyle: "italic", padding: "0 16px 14px 52px" }}>{task.coachingTip}</p>
+          </div>
+          {pomoOpen && <PomodoroTimer durationMinutes={pomoDuration} onComplete={() => { onPomoComplete?.(); setPomoOpen(false); }} />}
+        </div>
+      );
+    }
+
+    // ── Progress Bar ─────────────────────────────────────────────────────────
+    function ProgressBar({ completed, total }) {
+      const pct = total === 0 ? 0 : Math.round((completed / total) * 100);
+      return (
+        <div>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+            <span style={{ fontSize: 12, color: COLORS.textMuted, letterSpacing: "0.04em" }}>TODAY'S PROGRESS</span>
+            <span style={{ fontSize: 12, color: pct === 100 ? COLORS.gold : COLORS.textMuted }}>{pct === 100 ? "✦ All done" : `${completed} of ${total}`}</span>
+          </div>
+          <div style={{ height: 4, background: COLORS.border, borderRadius: 2, overflow: "hidden" }}>
+            <div className="dm-prog" style={{ height: "100%", borderRadius: 2, width: `${pct}%`, background: pct === 100 ? `linear-gradient(90deg,${COLORS.gold},${COLORS.accentLight})` : `linear-gradient(90deg,${COLORS.accent},${COLORS.accentLight})` }} />
+          </div>
+        </div>
+      );
+    }
+
+    // ── Streak Chip ──────────────────────────────────────────────────────────
+    function StreakChip({ streaks }) {
+      if (!streaks || (!streaks.protectedStreak && !streaks.intentionStreak)) return null;
+      return (
+        <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
+          {streaks.protectedStreak > 0 && (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, background: `${COLORS.gold}14`, border: `1px solid ${COLORS.gold}30`, borderRadius: 20, padding: "5px 12px" }}>
+              <span className="dm-sp" style={{ fontSize: 14 }}>🔥</span>
+              <span style={{ fontSize: 12, color: COLORS.gold }}>{streaks.protectedStreak} day streak</span>
+            </div>
+          )}
+          {streaks.intentionStreak > 0 && (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, background: `${COLORS.accent}14`, border: `1px solid ${COLORS.accent}30`, borderRadius: 20, padding: "5px 12px" }}>
+              <span style={{ fontSize: 14 }}>✦</span>
+              <span style={{ fontSize: 12, color: COLORS.accentLight }}>{streaks.intentionStreak} intention days</span>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ── Intention Card ───────────────────────────────────────────────────────
+    function IntentionCard({ text }) {
+      const d = useTypewriter(text, 22);
+      return (
+        <div style={{ background: `linear-gradient(135deg,${COLORS.elevated},${COLORS.card})`, border: `1px solid ${COLORS.accent}30`, borderRadius: 16, padding: "20px 24px", marginBottom: 24, position: "relative", overflow: "hidden" }}>
+          <div style={{ position: "absolute", top: -30, right: -30, width: 100, height: 100, background: `radial-gradient(circle,${COLORS.accent}20,transparent)`, borderRadius: "50%", pointerEvents: "none" }} />
+          <p style={{ fontSize: 10, letterSpacing: "0.12em", color: COLORS.accent, marginBottom: 8, textTransform: "uppercase" }}>Day Intention</p>
+          <p className="dm-h" style={{ fontSize: 20, color: COLORS.sand, lineHeight: 1.4, fontStyle: "italic" }}>"{d}"</p>
+        </div>
+      );
+    }
+
+    // ── Completion Overlay ───────────────────────────────────────────────────
+    function CompletionOverlay({ streaks, taskCount, energy, apiKey, onNewDay }) {
+      const [msg, setMsg] = useState("");
+      const [loading, setLoading] = useState(true);
+      const displayed = useTypewriter(msg, 28);
+
+      useEffect(() => {
+        generateCongrats(apiKey, {
+          energy, taskCount,
+          protectedStreak: streaks?.protectedStreak || 0,
+          intentionStreak: streaks?.intentionStreak || 0,
+        }).then(m => { setMsg(m); setLoading(false); }).catch(() => {
+          setMsg("You showed up and did the work. That's not nothing — that's everything."); setLoading(false);
+        });
+      }, []);
+
+      const particles = Array.from({ length: 12 }, (_, i) => i);
+
+      return (
+        <div style={{ position: "fixed", inset: 0, background: `${COLORS.bg}F0`, backdropFilter: "blur(8px)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+          <div style={{ position: "relative" }}>
+            {particles.map(i => (
+              <div key={i} className="dm-particle" style={{ left: `${10 + (i * 7) % 80}%`, bottom: "60%", animationDelay: `${i * 0.12}s`, background: i % 3 === 0 ? COLORS.gold : i % 3 === 1 ? COLORS.accent : COLORS.accentLight, width: i % 2 === 0 ? 5 : 8, height: i % 2 === 0 ? 5 : 8 }} />
+            ))}
+            <div className="dm-complete-card" style={{ background: COLORS.card, border: `1px solid ${COLORS.gold}40`, borderRadius: 24, padding: "40px 36px", maxWidth: 420, width: "100%", textAlign: "center", position: "relative", overflow: "hidden" }}>
+              <div style={{ position: "absolute", top: -60, left: "50%", transform: "translateX(-50%)", width: 200, height: 200, background: `radial-gradient(circle, ${COLORS.gold}18 0%, transparent 70%)`, borderRadius: "50%", pointerEvents: "none" }} />
+              <div style={{ width: 64, height: 64, borderRadius: "50%", background: `linear-gradient(135deg, ${COLORS.accent}, ${COLORS.gold})`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 24px", fontSize: 28 }}>✦</div>
+              <p className="dm-h" style={{ fontSize: 28, fontWeight: 300, color: COLORS.sand, marginBottom: 16, lineHeight: 1.2 }}>
+                Day mapped.<br />Day done.
+              </p>
+              <div style={{ minHeight: 72, marginBottom: 28 }}>
+                {loading
+                  ? <div style={{ display: "flex", justifyContent: "center", gap: 6, paddingTop: 24 }}>
+                      {[0,1,2].map(i => <div key={i} style={{ width: 6, height: 6, borderRadius: "50%", background: COLORS.textDim, animation: `floatUp 1s ease-in-out ${i * 0.2}s infinite alternate` }} />)}
+                    </div>
+                  : <p style={{ fontSize: 15, color: COLORS.textMuted, lineHeight: 1.7, fontStyle: "italic" }}>{displayed}</p>
+                }
+              </div>
+              {streaks && (streaks.protectedStreak > 0 || streaks.intentionStreak > 0) && (
+                <div style={{ display: "flex", gap: 10, justifyContent: "center", marginBottom: 28, flexWrap: "wrap" }}>
+                  {streaks.protectedStreak > 0 && (
+                    <div style={{ background: `${COLORS.gold}18`, border: `1px solid ${COLORS.gold}40`, borderRadius: 20, padding: "7px 16px", display: "flex", alignItems: "center", gap: 7 }}>
+                      <span style={{ fontSize: 18 }}>🔥</span>
+                      <div style={{ textAlign: "left" }}>
+                        <p style={{ fontSize: 16, fontWeight: 500, color: COLORS.gold, lineHeight: 1 }}>{streaks.protectedStreak}</p>
+                        <p style={{ fontSize: 10, color: COLORS.textDim, marginTop: 1 }}>day streak</p>
+                      </div>
+                    </div>
+                  )}
+                  {streaks.intentionStreak > 0 && (
+                    <div style={{ background: `${COLORS.accent}18`, border: `1px solid ${COLORS.accent}40`, borderRadius: 20, padding: "7px 16px", display: "flex", alignItems: "center", gap: 7 }}>
+                      <span style={{ fontSize: 18 }}>✦</span>
+                      <div style={{ textAlign: "left" }}>
+                        <p style={{ fontSize: 16, fontWeight: 500, color: COLORS.accentLight, lineHeight: 1 }}>{streaks.intentionStreak}</p>
+                        <p style={{ fontSize: 10, color: COLORS.textDim, marginTop: 1 }}>intention days</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+              <button className="dm-btn" onClick={onNewDay} style={{ width: "100%", padding: "15px", borderRadius: 14, fontSize: 15, fontWeight: 500, background: COLORS.accent, color: COLORS.sand, boxShadow: `0 0 28px ${COLORS.accent}40` }}>
+                Plan tomorrow
+              </button>
+              <p style={{ fontSize: 12, color: COLORS.textDim, marginTop: 12 }}>Or close this and rest. You earned it.</p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ── Weekly Review Modal ──────────────────────────────────────────────────
+    function WeeklyReviewModal({ onClose }) {
+      const log = loadWeeklyLog();
+      const days = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+      const ws = getWeekStart();
+      const entries = Array.from({ length: 7 }, (_, i) => {
+        const d = new Date(ws); d.setDate(d.getDate() + i);
+        const key = d.toISOString().slice(0, 10);
+        return { day: days[i], key, data: log[key] || null };
+      });
+      const totalCompleted = entries.reduce((s, e) => s + (e.data?.completed || 0), 0);
+      const totalTasks = entries.reduce((s, e) => s + (e.data?.total || 0), 0);
+      const intentionDays = entries.filter(e => e.data?.intentionMet).length;
+      const energyCount = {};
+      entries.forEach(e => { if (e.data?.energy) energyCount[e.data.energy] = (energyCount[e.data.energy] || 0) + 1; });
+      const domEnergy = Object.entries(energyCount).sort((a, b) => b[1] - a[1])[0]?.[0];
+      const ee = { low: "🌙", medium: "☀️", high: "⚡" };
+
+      return (
+        <div className="dm-modal" onClick={onClose}>
+          <div onClick={e => e.stopPropagation()} style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, borderRadius: 20, padding: 28, maxWidth: 440, width: "100%", maxHeight: "90vh", overflowY: "auto" }}>
+            <p style={{ fontSize: 10, letterSpacing: "0.12em", color: COLORS.accent, marginBottom: 4, textTransform: "uppercase" }}>Weekly Review</p>
+            <h3 className="dm-h" style={{ fontSize: 24, color: COLORS.sand, marginBottom: 20 }}>This week at a glance</h3>
+            <div style={{ display: "flex", gap: 10, marginBottom: 24 }}>
+              {[
+                { label: "Tasks done", value: `${totalCompleted}/${totalTasks}`, color: COLORS.accentLight },
+                { label: "Intention days", value: `${intentionDays}/7`, color: COLORS.gold },
+                { label: "Peak energy", value: domEnergy ? `${ee[domEnergy]} ${domEnergy}` : "—", color: COLORS.textMuted },
+              ].map(s => (
+                <div key={s.label} style={{ flex: 1, background: COLORS.elevated, borderRadius: 12, padding: "12px 14px", border: `1px solid ${COLORS.border}` }}>
+                  <p style={{ fontSize: 18, fontWeight: 500, color: s.color, marginBottom: 3 }}>{s.value}</p>
+                  <p style={{ fontSize: 11, color: COLORS.textDim }}>{s.label}</p>
+                </div>
+              ))}
+            </div>
+            <p style={{ fontSize: 12, color: COLORS.textMuted, marginBottom: 12, letterSpacing: "0.06em", textTransform: "uppercase" }}>Day by day</p>
+            {entries.map(e => (
+              <div key={e.key} style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
+                <span style={{ fontSize: 12, color: COLORS.textDim, width: 28 }}>{e.day}</span>
+                <div style={{ flex: 1, height: 6, background: COLORS.border, borderRadius: 3, overflow: "hidden" }}>
+                  <div style={{ height: "100%", borderRadius: 3, width: e.data?.total ? `${(e.data.completed / e.data.total) * 100}%` : "0%", background: `linear-gradient(90deg,${COLORS.accent},${COLORS.accentLight})` }} />
+                </div>
+                <span style={{ fontSize: 11, color: COLORS.textDim, width: 40, textAlign: "right" }}>{e.data ? `${e.data.completed}/${e.data.total}` : "—"}</span>
+                {e.data?.energy && <span style={{ fontSize: 13 }}>{ee[e.data.energy]}</span>}
+              </div>
+            ))}
+            {totalTasks === 0 && <p style={{ fontSize: 13, color: COLORS.textDim, fontStyle: "italic", textAlign: "center", padding: "16px 0" }}>Complete your first day to see your patterns.</p>}
+            <div style={{ height: 20 }} />
+            <button className="dm-btn" onClick={onClose} style={{ width: "100%", padding: "11px 0", borderRadius: 10, background: COLORS.elevated, border: `1px solid ${COLORS.border}`, color: COLORS.textMuted, fontSize: 14 }}>Close</button>
+          </div>
+        </div>
+      );
+    }
+
+    // ── Email Modal ──────────────────────────────────────────────────────────
+    function EmailModal({ tasks, intention, onClose }) {
+      const [email, setEmail] = useState("");
+      const [sent, setSent] = useState(false);
+      const formatted = tasks.map((t, i) => `${i + 1}. ${t.isProtected ? "[PROTECTED] " : ""}${t.title} — ${t.timeEstimate} (${t.category})`).join("\n");
+      return (
+        <div className="dm-modal" onClick={onClose}>
+          <div onClick={e => e.stopPropagation()} style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, borderRadius: 20, padding: 28, maxWidth: 420, width: "100%" }}>
+            <h3 className="dm-h" style={{ fontSize: 22, color: COLORS.sand, marginBottom: 4 }}>Email your day</h3>
+            <p style={{ fontSize: 13, color: COLORS.textMuted, marginBottom: 20 }}>Send today's plan to your inbox.</p>
+            {!sent ? (
+              <>
+                <div style={{ background: COLORS.elevated, borderRadius: 12, padding: 16, marginBottom: 16, border: `1px solid ${COLORS.border}`, fontSize: 13, color: COLORS.textMuted, lineHeight: 1.9, maxHeight: 180, overflowY: "auto" }}>
+                  <p style={{ color: COLORS.accent, marginBottom: 8, fontStyle: "italic" }}>"{intention}"</p>
+                  <pre style={{ whiteSpace: "pre-wrap", fontFamily: "'DM Sans',sans-serif" }}>{formatted}</pre>
+                </div>
+                <input className="dm-input" type="email" placeholder="your@email.com" value={email} onChange={e => setEmail(e.target.value)} style={{ marginBottom: 14 }} />
+                <div style={{ display: "flex", gap: 10 }}>
+                  <button className="dm-btn" onClick={onClose} style={{ flex: 1, padding: "11px 0", borderRadius: 10, background: COLORS.elevated, color: COLORS.textMuted, fontSize: 14 }}>Cancel</button>
+                  <button className="dm-btn" onClick={() => email && setSent(true)} style={{ flex: 2, padding: "11px 0", borderRadius: 10, background: COLORS.accent, color: COLORS.sand, fontSize: 14, fontWeight: 500 }}>Send</button>
+                </div>
+              </>
+            ) : (
+              <div style={{ textAlign: "center", padding: "20px 0" }}>
+                <div style={{ fontSize: 36, marginBottom: 12 }}>✦</div>
+                <p className="dm-h" style={{ fontSize: 20, color: COLORS.sand, marginBottom: 8 }}>Sent to {email}</p>
+                <button className="dm-btn" onClick={onClose} style={{ padding: "10px 32px", borderRadius: 10, background: COLORS.elevated, color: COLORS.textMuted, fontSize: 14 }}>Close</button>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // ── Rescue Modal ─────────────────────────────────────────────────────────
+    function RescueModal({ tasks, hours, setHours, onRescue, onClose, loading }) {
+      return (
+        <div className="dm-modal" onClick={onClose}>
+          <div onClick={e => e.stopPropagation()} style={{ background: COLORS.card, border: `1px solid ${COLORS.accent}40`, borderRadius: 20, padding: 28, maxWidth: 400, width: "100%" }}>
+            <p style={{ fontSize: 10, letterSpacing: "0.12em", color: COLORS.accent, marginBottom: 6, textTransform: "uppercase" }}>Rescue Mode</p>
+            <h3 className="dm-h" style={{ fontSize: 22, color: COLORS.sand, marginBottom: 8 }}>Day fell apart?</h3>
+            <p style={{ fontSize: 13, color: COLORS.textMuted, marginBottom: 20, lineHeight: 1.6 }}>No judgment. How much time do you actually have left?</p>
+            <p style={{ fontSize: 12, color: COLORS.textMuted, marginBottom: 12 }}>Remaining: <span style={{ color: COLORS.sand }}>{tasks.filter(t => !t.completed).length} tasks</span></p>
+            <input className="dm-input" type="number" min="0.5" max="12" step="0.5" value={hours} onChange={e => setHours(e.target.value)} style={{ marginBottom: 16 }} />
+            <div style={{ display: "flex", gap: 10 }}>
+              <button className="dm-btn" onClick={onClose} style={{ flex: 1, padding: "11px 0", borderRadius: 10, background: COLORS.elevated, color: COLORS.textMuted, fontSize: 14 }}>Cancel</button>
+              <button className="dm-btn" onClick={onRescue} disabled={loading} style={{ flex: 2, padding: "11px 0", borderRadius: 10, background: COLORS.accent, color: COLORS.sand, fontSize: 14, fontWeight: 500, opacity: loading ? 0.6 : 1 }}>
+                {loading ? "Re-planning…" : "Re-plan my day"}
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ── Landing Page ─────────────────────────────────────────────────────────
+    function LandingPage({ onEnter }) {
+      return (
+        <div className="dm-hero">
+          <div className="dm-glow" />
+          <nav style={{ position: "fixed", top: 0, left: 0, right: 0, padding: "20px 32px", display: "flex", justifyContent: "space-between", alignItems: "center", zIndex: 10, background: "#0D0906CC", backdropFilter: "blur(12px)" }}>
+            <Logo />
+            <button className="dm-btn" onClick={onEnter} style={{ padding: "9px 22px", borderRadius: 40, background: COLORS.accent, color: COLORS.sand, fontSize: 13, fontWeight: 500 }}>Start planning</button>
+          </nav>
+          <div style={{ maxWidth: 640, textAlign: "center", position: "relative", zIndex: 1 }}>
+            <div className="dm-fu" style={{ display: "inline-block", background: COLORS.elevated, border: `1px solid ${COLORS.border}`, borderRadius: 40, padding: "6px 16px", fontSize: 12, color: COLORS.textMuted, letterSpacing: "0.06em", marginBottom: 32 }}>A different kind of productivity</div>
+            <h1 className="dm-h dm-fu dm-d1" style={{ fontSize: "clamp(44px,8vw,76px)", fontWeight: 300, lineHeight: 1.08, color: COLORS.sand, marginBottom: 12, letterSpacing: "-0.02em" }}>
+              Plan from your<br /><em style={{ color: COLORS.accent }}>reality,</em> not your ambition.
+            </h1>
+            <p className="dm-fu dm-d2" style={{ fontSize: 17, color: COLORS.textMuted, lineHeight: 1.7, margin: "0 auto 48px", maxWidth: 480 }}>
+              Every other app asks what you want to do today. Daymap asks what you have to give — your energy, your time, your truth — and builds from there.
+            </p>
+            <button className="dm-btn dm-fu dm-d3" onClick={onEnter} style={{ padding: "16px 40px", borderRadius: 50, fontSize: 16, fontWeight: 500, background: COLORS.accent, color: COLORS.sand, boxShadow: `0 0 40px ${COLORS.accent}40` }}>
+              Map my day
+            </button>
+            <div className="dm-fu dm-d4" style={{ display: "flex", gap: 28, justifyContent: "center", marginTop: 72, flexWrap: "wrap" }}>
+              {[["Energy-calibrated","Tasks matched to how you actually feel"],["Day Intention","One sentence that anchors your whole day"],["Habit streaks","Momentum that builds without pressure"],["Rescue mode","When the day breaks — re-plan in seconds"]].map(([t, d]) => (
+                <div key={t} style={{ textAlign: "left", maxWidth: 150 }}>
+                  <div style={{ width: 6, height: 6, borderRadius: "50%", background: COLORS.accent, marginBottom: 8 }} />
+                  <p style={{ fontSize: 13, fontWeight: 500, color: COLORS.sand, marginBottom: 4 }}>{t}</p>
+                  <p style={{ fontSize: 12, color: COLORS.textMuted, lineHeight: 1.5 }}>{d}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ── Input Screen ─────────────────────────────────────────────────────────
+    function InputScreen({ apiKey, onGenerate }) {
+      const [goals, setGoals] = useState("");
+      const [energy, setEnergy] = useState("medium");
+      const [hours, setHours] = useState("6");
+      const [loading, setLoading] = useState(false);
+      const [error, setError] = useState("");
+
+      const handle = async () => {
+        if (!goals.trim()) { setError("Tell me what you're working toward today."); return; }
+        setError(""); setLoading(true);
+        try {
+          const result = await generateDaymap(apiKey, { goals, energy, hours });
+          onGenerate({ result, meta: { goals, energy, hours } });
+        } catch (e) { setError("Something went wrong. Try again in a moment."); }
+        finally { setLoading(false); }
+      };
+
+      return (
+        <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 24px" }}>
+          <div style={{ maxWidth: 520, width: "100%" }}>
+            <Logo /><div style={{ height: 32 }} />
+            <h2 className="dm-h dm-fu" style={{ fontSize: 36, fontWeight: 300, color: COLORS.sand, marginBottom: 8, lineHeight: 1.2 }}>
+              What do you have<br /><em style={{ color: COLORS.accent }}>to give today?</em>
+            </h2>
+            <p className="dm-fu dm-d1" style={{ fontSize: 14, color: COLORS.textMuted, marginBottom: 36, lineHeight: 1.6 }}>Not what you wish you could do. What you can actually show up for.</p>
+
+            <div className="dm-fu dm-d1" style={{ marginBottom: 24 }}>
+              <label style={{ fontSize: 12, color: COLORS.textMuted, letterSpacing: "0.06em", textTransform: "uppercase", display: "block", marginBottom: 10 }}>Your energy level</label>
+              <div style={{ display: "flex", gap: 10 }}>
+                {ENERGY_OPTIONS.map(opt => (
+                  <button key={opt.value} className="dm-btn" onClick={() => setEnergy(opt.value)} style={{ flex: 1, padding: "12px 10px", borderRadius: 12, fontSize: 13, textAlign: "center", background: energy === opt.value ? `${COLORS.accent}28` : COLORS.elevated, border: `1px solid ${energy === opt.value ? COLORS.accent : COLORS.border}`, color: energy === opt.value ? COLORS.sand : COLORS.textMuted }}>
+                    <div style={{ fontSize: 18, marginBottom: 4 }}>{opt.icon}</div>
+                    <div style={{ fontWeight: 500 }}>{opt.label}</div>
+                    <div style={{ fontSize: 11, marginTop: 2, opacity: 0.7 }}>{opt.desc}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="dm-fu dm-d2" style={{ marginBottom: 24 }}>
+              <label style={{ fontSize: 12, color: COLORS.textMuted, letterSpacing: "0.06em", textTransform: "uppercase", display: "block", marginBottom: 10 }}>Available hours</label>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {["2","4","6","8"].map(h => (
+                  <button key={h} className="dm-btn" onClick={() => setHours(h)} style={{ padding: "8px 18px", borderRadius: 8, fontSize: 14, background: hours === h ? `${COLORS.accent}28` : COLORS.elevated, border: `1px solid ${hours === h ? COLORS.accent : COLORS.border}`, color: hours === h ? COLORS.sand : COLORS.textMuted }}>{h}h</button>
+                ))}
+                <input className="dm-input" type="number" min="1" max="16" step="0.5" value={hours} onChange={e => setHours(e.target.value)} style={{ width: 80, textAlign: "center" }} />
+              </div>
+            </div>
+
+            <div className="dm-fu dm-d3" style={{ marginBottom: 28 }}>
+              <label style={{ fontSize: 12, color: COLORS.textMuted, letterSpacing: "0.06em", textTransform: "uppercase", display: "block", marginBottom: 10 }}>Your goals for today</label>
+              <textarea className="dm-input" rows={4} placeholder="e.g. Finish the proposal draft, reply to pending emails, get an early night…" value={goals} onChange={e => setGoals(e.target.value)} />
+              {error && <p style={{ fontSize: 12, color: COLORS.accentLight, marginTop: 6 }}>{error}</p>}
+            </div>
+
+            <button className="dm-btn dm-fu dm-d4" onClick={handle} disabled={loading} style={{ width: "100%", padding: "16px", borderRadius: 14, fontSize: 16, fontWeight: 500, background: loading ? COLORS.elevated : COLORS.accent, color: loading ? COLORS.textMuted : COLORS.sand, boxShadow: loading ? "none" : `0 0 32px ${COLORS.accent}40`, cursor: loading ? "default" : "pointer" }}>
+              {loading
+                ? <span style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
+                    <span style={{ display: "inline-block", width: 16, height: 16, border: `2px solid #5C4A3A`, borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />Mapping your day…
+                  </span>
+                : "Generate my day →"}
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    // ── Plan Screen ──────────────────────────────────────────────────────────
+    function PlanScreen({ result, meta, apiKey, onReset }) {
+      const [tasks, setTasks] = useState(result.tasks.map(t => ({ ...t, completed: false })));
+      const [intention, setIntention] = useState(result.dayIntention);
+      const [streaks, setStreaks] = useState(loadStreaks());
+      const [showEmail, setShowEmail] = useState(false);
+      const [showRescue, setShowRescue] = useState(false);
+      const [showWeekly, setShowWeekly] = useState(false);
+      const [rescueHours, setRescueHours] = useState("2");
+      const [rescueLoading, setRescueLoading] = useState(false);
+      const [toast, setToast] = useState("");
+      const [dayLogged, setDayLogged] = useState(false);
+      const [showComplete, setShowComplete] = useState(false);
+
+      const pomoDuration = ENERGY_OPTIONS.find(e => e.value === meta.energy)?.pomoDuration || 25;
+      const completed = tasks.filter(t => t.completed).length;
+
+      useEffect(() => {
+        if (completed === tasks.length && tasks.length > 0 && !dayLogged) {
+          setDayLogged(true);
+          const today = todayKey();
+          const protectedDone = !!tasks.find(t => t.isProtected && t.completed);
+          const s = loadStreaks();
+          const yest = new Date(); yest.setDate(yest.getDate() - 1);
+          const wasYest = s.lastDate === yest.toISOString().slice(0, 10);
+          const ns = {
+            protectedStreak: protectedDone ? (wasYest ? s.protectedStreak + 1 : 1) : s.protectedStreak,
+            intentionStreak: wasYest ? s.intentionStreak + 1 : 1,
+            lastDate: today,
+          };
+          saveStreaks(ns); setStreaks(ns);
+          const log = loadWeeklyLog();
+          log[today] = { completed: tasks.filter(t => t.completed).length, total: tasks.length, energy: meta.energy, intentionMet: true };
+          saveWeeklyLog(log);
+          setTimeout(() => setShowComplete(true), 600);
+        }
+      }, [completed, tasks.length]);
+
+      const handleToggle = id => setTasks(prev => prev.map(t => t.id === id ? { ...t, completed: !t.completed } : t));
+      const showMsg = msg => { setToast(msg); setTimeout(() => setToast(""), 2800); };
+
+      const handleShare = () => {
+        const enc = btoa(JSON.stringify({ intention, tasks: tasks.map(({ id, title, category, timeEstimate, isProtected }) => ({ id, title, category, timeEstimate, isProtected })) }));
+        const url = `${window.location.href.split("?")[0]}?plan=${enc}`;
+        navigator.clipboard.writeText(url).then(() => showMsg("Link copied ✦")).catch(() => {
+          prompt("Copy this link:", url);
+        });
+      };
+
+      const handleRescue = async () => {
+        setRescueLoading(true);
+        try {
+          const r = await generateDaymap(apiKey, { goals: meta.goals, energy: meta.energy, hours: rescueHours, rescueMode: true, remainingTasks: tasks.filter(t => !t.completed) });
+          setTasks(r.tasks.map(t => ({ ...t, completed: false }))); setIntention(r.dayIntention); setShowRescue(false);
+        } catch { showMsg("Re-plan failed. Try again."); }
+        finally { setRescueLoading(false); }
+      };
+
+      const ee = { low: "🌙", medium: "☀️", high: "⚡" };
+
+      return (
+        <div style={{ minHeight: "100vh", maxWidth: 580, margin: "0 auto", padding: "0 20px 80px" }}>
+          <nav style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "20px 0 24px", flexWrap: "wrap", gap: 8 }}>
+            <Logo />
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <span style={{ fontSize: 12, color: COLORS.textMuted }}>{ee[meta.energy] || "☀️"} {meta.energy} · {meta.hours}h</span>
+              <button className="dm-btn" onClick={() => setShowWeekly(true)} style={{ fontSize: 12, color: COLORS.textMuted, background: COLORS.elevated, border: `1px solid ${COLORS.border}`, padding: "5px 12px", borderRadius: 20 }}>Weekly</button>
+              <button className="dm-btn" onClick={onReset} style={{ fontSize: 12, color: COLORS.textMuted, background: COLORS.elevated, border: `1px solid ${COLORS.border}`, padding: "5px 12px", borderRadius: 20 }}>New day</button>
+            </div>
+          </nav>
+
+          <StreakChip streaks={streaks} />
+          <ProgressBar completed={completed} total={tasks.length} />
+          <div style={{ height: 24 }} />
+          <IntentionCard text={intention} />
+
+          <div style={{ marginBottom: 24 }}>
+            {tasks.map((task, i) => (
+              <TaskRow key={task.id} task={task} index={i} onToggle={handleToggle} pomoDuration={pomoDuration} onPomoComplete={() => showMsg("Focus session complete. Take a break. ✦")} />
+            ))}
+          </div>
+
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {[
+              { icon: "🚨", label: "Rescue", action: () => setShowRescue(true) },
+              { icon: "🔗", label: "Share",  action: handleShare },
+              { icon: "✉️", label: "Email",  action: () => setShowEmail(true) },
+            ].map(b => (
+              <button key={b.label} className="dm-btn" onClick={b.action} style={{ flex: 1, minWidth: 90, padding: "11px 12px", borderRadius: 12, fontSize: 13, background: COLORS.elevated, border: `1px solid ${COLORS.border}`, color: COLORS.textMuted, display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
+                <span>{b.icon}</span>{b.label}
+              </button>
+            ))}
+          </div>
+
+          {showEmail  && <EmailModal tasks={tasks} intention={intention} onClose={() => setShowEmail(false)} />}
+          {showRescue && <RescueModal tasks={tasks} hours={rescueHours} setHours={setRescueHours} onRescue={handleRescue} onClose={() => setShowRescue(false)} loading={rescueLoading} />}
+          {showWeekly && <WeeklyReviewModal onClose={() => setShowWeekly(false)} />}
+
+          {showComplete && (
+            <CompletionOverlay
+              streaks={streaks}
+              taskCount={tasks.length}
+              energy={meta.energy}
+              apiKey={apiKey}
+              onNewDay={onReset}
+            />
+          )}
+
+          <div className={`dm-toast ${toast ? "on" : ""}`}>{toast}</div>
+        </div>
+      );
+    }
+
+    // ── Root App ─────────────────────────────────────────────────────────────
+    function App() {
+      const [screen, setScreen] = useState("landing");
+      const [planData, setPlanData] = useState(null);
+      const apiKey = "server";
+
+      useEffect(() => {
+        injectStyles();
+        const enc = new URLSearchParams(window.location.search).get("plan");
+        if (enc) {
+          try {
+            const d = JSON.parse(atob(enc));
+            setPlanData({ result: { dayIntention: d.intention, tasks: d.tasks }, meta: { goals: "", energy: "medium", hours: "?" } });
+            setScreen("plan");
+          } catch {}
+        }
+      }, []);
+
+      const needsKey = false;
+
+      return (
+        <div style={{ background: COLORS.bg, minHeight: "100vh" }}>
+          <div className="dm-grain" />
+          
+          {!needsKey && screen === "landing" && <LandingPage onEnter={() => setScreen("input")} />}
+          {!needsKey && screen === "input"   && <InputScreen apiKey={apiKey} onGenerate={({ result, meta }) => { setPlanData({ result, meta }); setScreen("plan"); }} />}
+          {!needsKey && screen === "plan"    && planData && <PlanScreen result={planData.result} meta={planData.meta} apiKey={apiKey} onReset={() => setScreen("input")} />}
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>
